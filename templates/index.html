@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IRIS Caregiver Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+
+    body { background: #0a0f1e; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #1a2035; }
+    ::-webkit-scrollbar-thumb { background: #3b4a72; border-radius: 3px; }
+
+    /* Glassmorphism card */
+    .glass {
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 1.25rem;
+    }
+
+    /* Status card pulsing ring */
+    @keyframes pulse-ring-blue {
+      0%   { box-shadow: 0 0 0 0 rgba(59,130,246,0.6); }
+      70%  { box-shadow: 0 0 0 20px rgba(59,130,246,0); }
+      100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+    }
+    @keyframes pulse-ring-red {
+      0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.7); }
+      70%  { box-shadow: 0 0 0 28px rgba(239,68,68,0); }
+      100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+    }
+    @keyframes pulse-ring-green {
+      0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+      70%  { box-shadow: 0 0 0 14px rgba(34,197,94,0); }
+      100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+    }
+
+    .pulse-blue { animation: pulse-ring-blue 1.5s infinite; }
+    .pulse-red  { animation: pulse-ring-red  0.9s infinite; }
+    .pulse-green{ animation: pulse-ring-green 2.5s infinite; }
+
+    /* Card glow */
+    .glow-blue { box-shadow: 0 0 40px rgba(59,130,246,0.25), 0 0 80px rgba(59,130,246,0.1); }
+    .glow-red  { box-shadow: 0 0 40px rgba(239,68,68,0.35),  0 0 80px rgba(239,68,68,0.15); }
+
+    /* Gradient text */
+    .grad-text {
+      background: linear-gradient(135deg, #60a5fa, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    /* Bar chart cells */
+    .bar-fill {
+      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 0 4px 4px 0;
+    }
+
+    /* Log row */
+    .log-row {
+      animation: fadeSlideIn 0.4s ease;
+    }
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Connection indicator dot */
+    .dot-live { animation: dotBlink 1.4s infinite; }
+    @keyframes dotBlink {
+      0%,100% { opacity: 1; }
+      50%      { opacity: 0.2; }
+    }
+  </style>
+</head>
+<body class="min-h-screen text-white p-4 sm:p-6 lg:p-8">
+
+  <!-- ── Header ── -->
+  <header class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-3xl font-bold grad-text tracking-tight">IRIS Caregiver</h1>
+      <p class="text-slate-400 text-sm mt-0.5">Live ESP32 Patient Monitoring Dashboard</p>
+    </div>
+    <div class="flex items-center gap-2 glass px-4 py-2">
+      <span id="connDot" class="w-2.5 h-2.5 rounded-full bg-emerald-400 dot-live"></span>
+      <span id="connLabel" class="text-sm text-slate-300 font-medium">Connecting…</span>
+      <span class="text-slate-500 text-xs" id="clockEl"></span>
+    </div>
+  </header>
+
+  <!-- ── Top row: Status Card + Stats ── -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+
+    <!-- Big Status Card -->
+    <div id="statusCard"
+         class="glass lg:col-span-1 flex flex-col items-center justify-center py-10 px-6 transition-all duration-700">
+      <div id="statusIcon" class="text-7xl mb-4 select-none transition-all duration-500">🟢</div>
+      <div id="statusLabel" class="text-2xl font-bold text-slate-200 tracking-wide">STANDBY</div>
+      <div id="statusSub"   class="text-slate-400 text-sm mt-1">Waiting for events…</div>
+      <div id="statusTime"  class="text-slate-500 text-xs mt-3 font-mono"></div>
+    </div>
+
+    <!-- Stats grid -->
+    <div class="lg:col-span-2 grid grid-cols-2 sm:grid-cols-2 gap-4">
+      <!-- Total Events -->
+      <div class="glass p-6 flex flex-col gap-1">
+        <span class="text-slate-400 text-xs uppercase tracking-widest font-semibold">Total Events</span>
+        <span id="statTotal" class="text-5xl font-extrabold text-white mt-1">0</span>
+      </div>
+      <!-- Emergencies -->
+      <div class="glass p-6 flex flex-col gap-1">
+        <span class="text-slate-400 text-xs uppercase tracking-widest font-semibold">Emergencies</span>
+        <span id="statEmerg" class="text-5xl font-extrabold text-red-400 mt-1">0</span>
+      </div>
+      <!-- Water Count -->
+      <div class="glass p-6 flex flex-col gap-1">
+        <span class="text-slate-400 text-xs uppercase tracking-widest font-semibold">💧 Water Requests</span>
+        <span id="statWater" class="text-5xl font-extrabold text-blue-400 mt-1">0</span>
+      </div>
+      <!-- Last Event -->
+      <div class="glass p-6 flex flex-col gap-1">
+        <span class="text-slate-400 text-xs uppercase tracking-widest font-semibold">Last Event</span>
+        <span id="statLast"  class="text-3xl font-extrabold text-violet-300 mt-1 truncate">—</span>
+        <span id="statLastTs"class="text-slate-500 text-xs font-mono mt-1"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Middle row: Bar Chart + Telegram Log ── -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+
+    <!-- Chart.js Bar Chart -->
+    <div class="glass p-6">
+      <h2 class="text-lg font-semibold text-slate-200 mb-4">📊 Event Distribution</h2>
+      <canvas id="eventsChart" height="200"></canvas>
+    </div>
+
+    <!-- Horizontal live bars -->
+    <div class="glass p-6 flex flex-col justify-center gap-5">
+      <h2 class="text-lg font-semibold text-slate-200 mb-2">📶 Live Count Bars</h2>
+
+      <!-- YES -->
+      <div>
+        <div class="flex justify-between text-sm mb-1.5">
+          <span class="text-emerald-400 font-semibold">✅ YES</span>
+          <span id="barYesCount" class="text-slate-300 font-mono">0</span>
+        </div>
+        <div class="h-4 bg-white/5 rounded overflow-hidden">
+          <div id="barYes" class="bar-fill h-full bg-gradient-to-r from-emerald-500 to-emerald-400" style="width:0%"></div>
+        </div>
+      </div>
+      <!-- NO -->
+      <div>
+        <div class="flex justify-between text-sm mb-1.5">
+          <span class="text-rose-400 font-semibold">❌ NO</span>
+          <span id="barNoCount" class="text-slate-300 font-mono">0</span>
+        </div>
+        <div class="h-4 bg-white/5 rounded overflow-hidden">
+          <div id="barNo" class="bar-fill h-full bg-gradient-to-r from-rose-500 to-rose-400" style="width:0%"></div>
+        </div>
+      </div>
+      <!-- WATER -->
+      <div>
+        <div class="flex justify-between text-sm mb-1.5">
+          <span class="text-blue-400 font-semibold">💧 WATER</span>
+          <span id="barWaterCount" class="text-slate-300 font-mono">0</span>
+        </div>
+        <div class="h-4 bg-white/5 rounded overflow-hidden">
+          <div id="barWater" class="bar-fill h-full bg-gradient-to-r from-blue-500 to-cyan-400" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Bottom row: Telegram Log ── -->
+  <div class="glass p-6">
+    <h2 class="text-lg font-semibold text-slate-200 mb-4">
+      📨 Telegram Alert Log
+      <span class="ml-2 text-xs text-slate-500 font-normal">Last 10 messages</span>
+    </h2>
+    <div id="tgLog" class="space-y-2 max-h-48 overflow-y-auto">
+      <p class="text-slate-500 text-sm italic">No alerts sent yet.</p>
+    </div>
+  </div>
+
+  <!-- ── Footer ── -->
+  <footer class="mt-8 text-center text-slate-600 text-xs">
+    IRIS Caregiver System · /dev/cu.usbserial-0001 · 115200 baud
+  </footer>
+
+<!-- ────────────────────────────────── JS ────────────────────────────────── -->
+<script>
+// ── Clock ──────────────────────────────────────────────────────────────────
+function tick() {
+  document.getElementById('clockEl').textContent =
+    new Date().toLocaleTimeString();
+}
+setInterval(tick, 1000); tick();
+
+// ── Chart.js setup ─────────────────────────────────────────────────────────
+const chartCtx = document.getElementById('eventsChart').getContext('2d');
+const eventsChart = new Chart(chartCtx, {
+  type: 'bar',
+  data: {
+    labels: ['YES', 'NO', 'WATER'],
+    datasets: [{
+      label: 'Count',
+      data: [0, 0, 0],
+      backgroundColor: [
+        'rgba(52, 211, 153, 0.7)',   // emerald
+        'rgba(248, 113, 113, 0.7)',  // rose
+        'rgba(96, 165, 250, 0.7)',   // blue
+      ],
+      borderColor: [
+        'rgba(52, 211, 153, 1)',
+        'rgba(248, 113, 113, 1)',
+        'rgba(96, 165, 250, 1)',
+      ],
+      borderWidth: 2,
+      borderRadius: 8,
+      borderSkipped: false,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+    },
+    scales: {
+      x: {
+        ticks: { color: '#94a3b8', font: { weight: '600' } },
+        grid:  { color: 'rgba(255,255,255,0.04)' }
+      },
+      y: {
+        beginAtZero: true,
+        ticks: { color: '#94a3b8', precision: 0 },
+        grid:  { color: 'rgba(255,255,255,0.06)' }
+      }
+    }
+  }
+});
+
+// ── Status card config ─────────────────────────────────────────────────────
+const STATUS = {
+  WATER: {
+    icon:  '💧',
+    label: 'WATER NEEDED',
+    sub:   'Patient is requesting water',
+    bg:    'rgba(59,130,246,0.18)',
+    border:'rgba(59,130,246,0.45)',
+    pulse: 'pulse-blue',
+    glow:  'glow-blue',
+  },
+  EMERGENCY: {
+    icon:  '🚨',
+    label: 'EMERGENCY!',
+    sub:   'Patient needs immediate help!',
+    bg:    'rgba(239,68,68,0.22)',
+    border:'rgba(239,68,68,0.55)',
+    pulse: 'pulse-red',
+    glow:  'glow-red',
+  },
+  YES: {
+    icon:  '✅',
+    label: 'YES',
+    sub:   'Patient responded positively',
+    bg:    'rgba(52,211,153,0.12)',
+    border:'rgba(52,211,153,0.35)',
+    pulse: 'pulse-green',
+    glow:  '',
+  },
+  NO: {
+    icon:  '❌',
+    label: 'NO',
+    sub:   'Patient responded negatively',
+    bg:    'rgba(248,113,113,0.12)',
+    border:'rgba(248,113,113,0.30)',
+    pulse: '',
+    glow:  '',
+  },
+  DEFAULT: {
+    icon:  '🟢',
+    label: 'STANDBY',
+    sub:   'Waiting for events…',
+    bg:    'rgba(255,255,255,0.04)',
+    border:'rgba(255,255,255,0.08)',
+    pulse: '',
+    glow:  '',
+  }
+};
+
+let lastPulseClass = '';
+let lastGlowClass  = '';
+
+function applyStatusCard(event, ts) {
+  const cfg = STATUS[event] || STATUS.DEFAULT;
+  const card = document.getElementById('statusCard');
+
+  // Reset classes
+  card.classList.remove(lastPulseClass, lastGlowClass);
+  lastPulseClass = cfg.pulse;
+  lastGlowClass  = cfg.glow;
+  if (cfg.pulse) card.classList.add(cfg.pulse);
+  if (cfg.glow)  card.classList.add(cfg.glow);
+
+  card.style.background = cfg.bg;
+  card.style.borderColor = cfg.border;
+
+  document.getElementById('statusIcon').textContent  = cfg.icon;
+  document.getElementById('statusLabel').textContent = cfg.label;
+  document.getElementById('statusSub').textContent   = cfg.sub;
+  document.getElementById('statusTime').textContent  = ts ? `@ ${ts}` : '';
+}
+
+// ── Stat helpers ───────────────────────────────────────────────────────────
+function setEl(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+function updateBars(counts, total) {
+  const events = { YES: 'barYes', NO: 'barNo', WATER: 'barWater' };
+  const max = Math.max(
+    counts['YES']   || 0,
+    counts['NO']    || 0,
+    counts['WATER'] || 0,
+    1
+  );
+  for (const [key, barId] of Object.entries(events)) {
+    const c = counts[key] || 0;
+    const pct = Math.round((c / max) * 100);
+    const bar = document.getElementById(barId);
+    if (bar) bar.style.width = pct + '%';
+    const countEl = document.getElementById(barId + 'Count');
+    if (countEl) countEl.textContent = c;
+  }
+}
+
+function updateChart(counts) {
+  eventsChart.data.datasets[0].data = [
+    counts['YES']   || 0,
+    counts['NO']    || 0,
+    counts['WATER'] || 0,
+  ];
+  eventsChart.update('active');
+}
+
+function renderTgLog(tgLog) {
+  if (!tgLog || tgLog.length === 0) return;
+  const container = document.getElementById('tgLog');
+  container.innerHTML = '';
+  [...tgLog].reverse().forEach(entry => {
+    const isOk = entry.startsWith('✅');
+    const div = document.createElement('div');
+    div.className = `log-row flex items-start gap-2 text-sm px-3 py-2 rounded-lg ${
+      isOk ? 'bg-emerald-900/30 text-emerald-300' : 'bg-red-900/30 text-red-300'
+    }`;
+    div.innerHTML = `<span class="font-mono text-xs mt-0.5 shrink-0">${isOk ? '✅' : '❌'}</span>
+                     <span>${entry.replace(/^[✅❌]\s*/, '')}</span>`;
+    container.appendChild(div);
+  });
+}
+
+// ── Apply a full state snapshot ────────────────────────────────────────────
+function applyState(d) {
+  // Chart & bars
+  updateChart(d.counts || {});
+  updateBars(d.counts || {}, d.total || 0);
+
+  // Stats
+  setEl('statTotal', d.total || 0);
+  setEl('statEmerg', d.emergencies || 0);
+  setEl('statWater', (d.counts && d.counts['WATER']) || 0);
+  setEl('statLast',  d.last_event || '—');
+  setEl('statLastTs',d.last_ts    || '');
+
+  // Status card
+  if (d.last_event && d.last_event !== '—') {
+    applyStatusCard(d.last_event, d.last_ts);
+  }
+
+  // Telegram log
+  if (d.tg_log) renderTgLog(d.tg_log);
+}
+
+// ── Fetch initial state on load ────────────────────────────────────────────
+fetch('/api/state')
+  .then(r => r.json())
+  .then(applyState)
+  .catch(() => {});
+
+// ── SSE connection ─────────────────────────────────────────────────────────
+function connectSSE() {
+  const connDot   = document.getElementById('connDot');
+  const connLabel = document.getElementById('connLabel');
+
+  const es = new EventSource('/events');
+
+  es.onopen = () => {
+    connDot.classList.replace('bg-amber-400', 'bg-emerald-400');
+    connDot.classList.replace('bg-red-400',   'bg-emerald-400');
+    connLabel.textContent = 'Live';
+  };
+
+  es.onmessage = (evt) => {
+    let d;
+    try { d = JSON.parse(evt.data); } catch { return; }
+    if (d.heartbeat) return;   // ignore keep-alive pings
+    applyState(d);
+  };
+
+  es.onerror = () => {
+    connDot.classList.replace('bg-emerald-400', 'bg-red-400');
+    connLabel.textContent = 'Reconnecting…';
+    es.close();
+    setTimeout(connectSSE, 3000);   // auto-reconnect
+  };
+}
+
+connectSSE();
+</script>
+</body>
+</html>
